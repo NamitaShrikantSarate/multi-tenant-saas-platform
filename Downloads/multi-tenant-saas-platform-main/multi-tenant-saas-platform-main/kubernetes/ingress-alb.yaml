@@ -1,0 +1,186 @@
+# ============================================================
+# ingress-alb.yaml
+# EKS Auto Mode
+# ============================================================
+
+# ============================================================
+# INGRESS CLASS PARAMS
+# ============================================================
+
+apiVersion: eks.amazonaws.com/v1
+kind: IngressClassParams
+metadata:
+  name: alb
+
+spec:
+  scheme: internet-facing
+
+  targetType: ip
+
+  group:
+    name: multi-tenant-saas
+
+  loadBalancerAttributes:
+    - key: idle_timeout.timeout_seconds
+      value: "60"
+
+    - key: routing.http2.enabled
+      value: "true"
+
+    - key: access_logs.s3.enabled
+      value: "false"
+
+---
+# ============================================================
+# INGRESS CLASS
+# ============================================================
+
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: alb
+
+spec:
+  controller: eks.amazonaws.com/alb
+
+  parameters:
+    apiGroup: eks.amazonaws.com
+    kind: IngressClassParams
+    name: alb
+
+---
+# ============================================================
+# TENANT A
+# ============================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-tenant-saas-ingress
+  namespace: tenant-a
+
+  labels:
+    app: multi-tenant-saas
+
+  annotations:
+    alb.ingress.kubernetes.io/group.name: multi-tenant-saas
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    alb.ingress.kubernetes.io/target-group-attributes: >-
+      stickiness.enabled=false,
+      deregistration_delay.timeout_seconds=30
+
+spec:
+  ingressClassName: alb
+
+  rules:
+    - http:
+        paths:
+
+          - path: /tenant-a
+            pathType: Prefix
+            backend:
+              service:
+                name: tenant-a-service
+                port:
+                  number: 80
+
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tenant-a-service
+                port:
+                  number: 80
+
+---
+# ============================================================
+# TENANT B
+# ============================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-tenant-saas-ingress
+  namespace: tenant-b
+
+  labels:
+    app: multi-tenant-saas
+
+  annotations:
+    alb.ingress.kubernetes.io/group.name: multi-tenant-saas
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    alb.ingress.kubernetes.io/target-group-attributes: >-
+      stickiness.enabled=false,
+      deregistration_delay.timeout_seconds=30
+
+spec:
+  ingressClassName: alb
+
+  rules:
+    - http:
+        paths:
+
+          - path: /tenant-b
+            pathType: Prefix
+            backend:
+              service:
+                name: tenant-b-service
+                port:
+                  number: 80
+
+---
+# ============================================================
+# TENANT C
+# ============================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-tenant-saas-ingress
+  namespace: tenant-c
+
+  labels:
+    app: multi-tenant-saas
+
+  annotations:
+    alb.ingress.kubernetes.io/group.name: multi-tenant-saas
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    alb.ingress.kubernetes.io/target-group-attributes: >-
+      stickiness.enabled=false,
+      deregistration_delay.timeout_seconds=30
+
+spec:
+  ingressClassName: alb
+
+  rules:
+    - http:
+        paths:
+
+          - path: /tenant-c
+            pathType: Prefix
+            backend:
+              service:
+                name: tenant-c-service
+                port:
+                  number: 80

@@ -1,0 +1,104 @@
+name: AWS OIDC Deployment & Destroy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+  
+  # Manual trigger with an Apply/Destroy dropdown
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select Environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      action:
+        description: 'Terraform Action (Apply or Destroy)'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-execution:
+    runs-on: ubuntu-latest
+    
+    env:
+      # If manual, use dropdown. If push, use prod.
+      DEPLOY_ENV: ${{ github.event.inputs.environment || 'prod' }}
+      # If manual, use dropdown. If push, default to apply.
+      TF_ACTION: ${{ github.event.inputs.action || 'apply' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::096563427919:role/app-tenant
+          aws-region: ap-south-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # You only need this step written once since both apply and destroy need variables
+      - name: Generate tfvars file
+        working-directory: ./terraform/environments/${{ env.DEPLOY_ENV }}
+        run: |
+          cat <<EOF > terraform.tfvars
+          environment                 = "${{ env.DEPLOY_ENV }}"
+          aws_region                  = "ap-south-1"
+          cidr_block                  = "10.0.0.0/16"
+          public_subnet_cidr_blocks   = ["10.0.1.0/24", "10.0.2.0/24"]
+          private_subnet_cidr_blocks  = ["10.0.3.0/24", "10.0.4.0/24"]
+          EOF
+
+      - name: Terraform Init
+        working-directory: ./terraform/environments/${{ env.DEPLOY_ENV }}
+        run: terraform init
+
+      - name: Adopt existing ECR KMS alias
+        if: ${{ env.TF_ACTION == 'apply' && env.DEPLOY_ENV == 'prod' }}
+        working-directory: ./terraform/environments/prod
+        run: |
+          set -euo pipefail
+          alias_address='module.ecr.aws_kms_alias.alias_ecr'
+          if ! terraform state show "$alias_address" >/dev/null 2>&1 && \
+             aws kms describe-alias --alias-name alias/ecr >/dev/null 2>&1; then
+            terraform import "$alias_address" alias/ecr
+          fi
+
+      # --- APPLY LOGIC ---
+      # This step ONLY runs if TF_ACTION is 'apply'
+      - name: Terraform Plan & Apply
+        if: ${{ env.TF_ACTION == 'apply' }}
+        working-directory: ./terraform/environments/${{ env.DEPLOY_ENV }}
+        run: |
+          terraform plan -out=tfplan
+          terraform apply -auto-approve tfplan
+
+      # --- DESTROY LOGIC ---
+      # This step ONLY runs if TF_ACTION is 'destroy'
+      - name: Terraform Destroy
+        if: ${{ env.TF_ACTION == 'destroy' }}
+        working-directory: ./terraform/environments/${{ env.DEPLOY_ENV }}
+        run: |
+          set -euo pipefail
+          echo "Terraform state before destroy:"
+          terraform state list
+          terraform plan -destroy -input=false -out=destroy.tfplan
+          terraform show -no-color destroy.tfplan
+          terraform apply -auto-approve -input=false destroy.tfplan
